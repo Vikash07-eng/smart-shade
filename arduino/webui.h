@@ -1,0 +1,317 @@
+// Phone web app, served by the ESP32 at http://shade.local
+// Add to iPhone home screen: Safari > Share > Add to Home Screen
+#pragma once
+#include <pgmspace.h>
+
+const char INDEX_HTML[] PROGMEM = R"HTML(<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Shade">
+<meta name="theme-color" content="#111418">
+<title>Smart Shade</title>
+<style>
+:root{--bg:#111418;--card:#1b2027;--line:#2a313b;--txt:#e8ecf1;--dim:#8b95a3;--acc:#f5b942;--ok:#4cc38a;--bad:#e5645a}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--txt);font:16px -apple-system,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 90px}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px}
+header h1{font-size:20px;margin:0}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--bad);display:inline-block;margin-right:6px}
+.dot.ok{background:var(--ok)}
+.sub{color:var(--dim);font-size:13px}
+main{padding:0 16px;max-width:520px;margin:0 auto}
+section{display:none}section.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+.window{position:relative;height:220px;border-radius:12px;border:3px solid #3a4452;background:linear-gradient(#7db7e8,#cfe6f7);overflow:hidden;margin-bottom:14px}
+.fabric{position:absolute;left:0;right:0;top:0;background:repeating-linear-gradient(#d9c9a3 0 6px,#cdbb92 6px 8px);border-bottom:4px solid #8a7a58;transition:height .4s}
+.big{font-size:44px;font-weight:700;text-align:center;margin:4px 0}
+.big small{font-size:16px;color:var(--dim);font-weight:500}
+input[type=range]{width:100%;height:36px;accent-color:var(--acc)}
+.row{display:flex;gap:10px;margin-top:10px}
+.row>*{flex:1}
+button,select,input[type=number],input[type=time],input[type=text]{font:inherit;color:var(--txt);background:#252c35;border:1px solid var(--line);border-radius:12px;padding:12px;min-height:46px}
+button:active{background:#303946}
+button.pri{background:var(--acc);color:#1a1405;border-color:var(--acc);font-weight:700}
+button.danger{background:#3a1f1d;border-color:#5b2a27;color:#ff9b93}
+button.sm{min-height:36px;padding:6px 12px;font-size:14px}
+label{display:block;color:var(--dim);font-size:13px;margin:12px 0 4px}
+label.inl{display:flex;align-items:center;gap:10px;color:var(--txt);font-size:16px}
+select,input[type=number],input[type=time],input[type=text]{width:100%}
+h2{font-size:15px;margin:0 0 4px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.sch{display:flex;align-items:center;gap:12px}
+.sch .t{flex:1}
+.sch b{font-size:18px}
+.chips{display:flex;gap:6px}
+.chip{flex:1;text-align:center;padding:10px 0;border-radius:10px;background:#252c35;border:1px solid var(--line);font-weight:600;user-select:none}
+.chip.on{background:var(--acc);color:#1a1405;border-color:var(--acc)}
+.sw{position:relative;width:50px;height:30px;flex:none}
+.sw input{opacity:0;width:100%;height:100%;margin:0;position:absolute;z-index:2}
+.sw i{position:absolute;inset:0;background:#3a4452;border-radius:30px;transition:.2s}
+.sw i:before{content:"";position:absolute;left:3px;top:3px;width:24px;height:24px;border-radius:50%;background:#fff;transition:.2s}
+.sw input:checked+i{background:var(--ok)}
+.sw input:checked+i:before{transform:translateX(20px)}
+nav{position:fixed;left:0;right:0;bottom:0;display:flex;background:#161a20;border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;border-radius:0;background:none;color:var(--dim);padding:14px 0}
+nav button.on{color:var(--acc);font-weight:700}
+dialog{background:var(--card);color:var(--txt);border:1px solid var(--line);border-radius:18px;width:calc(100% - 32px);max-width:480px;padding:18px}
+dialog::backdrop{background:rgba(0,0,0,.6)}
+.msg{color:var(--dim);font-size:13px;margin-top:8px}
+.warn{background:#3a2d12;border:1px solid #6a5220;color:#f5d28a;border-radius:12px;padding:12px;margin-bottom:14px;font-size:14px}
+</style>
+</head>
+<body>
+<header>
+  <div><h1>Smart Shade</h1><div class="sub" id="clock">connecting...</div></div>
+  <div><span class="dot" id="conn"></span></div>
+</header>
+<main>
+
+<section id="tab-control" class="on">
+  <div class="warn" id="calwarn" style="display:none">Not calibrated yet. Go to Settings &rarr; Calibration to set the open and closed positions.</div>
+  <div class="card">
+    <div class="window"><div class="fabric" id="fabric" style="height:0"></div></div>
+    <div class="big"><span id="pct">--</span><small>% open</small></div>
+    <input type="range" id="slider" min="0" max="100" step="1" value="0">
+    <div class="row">
+      <button class="pri" onclick="move(100)">Open</button>
+      <button onclick="stopShade()">Stop</button>
+      <button class="pri" onclick="move(0)">Close</button>
+    </div>
+    <div class="row">
+      <button onclick="move(25)">25%</button>
+      <button onclick="move(50)">50%</button>
+      <button onclick="move(75)">75%</button>
+    </div>
+  </div>
+  <div class="card" id="suncard" style="display:none"><h2>Today</h2>
+    <div class="sub" id="sunline"></div>
+  </div>
+</section>
+
+<section id="tab-sched">
+  <div id="schedlist"></div>
+  <button class="pri" style="width:100%" onclick="editSched(-1)">+ Add schedule</button>
+  <div class="msg" id="schedmsg"></div>
+</section>
+
+<section id="tab-set">
+  <div class="card">
+    <h2>Calibration</h2>
+    <div class="msg">1. Jog the shade to fully OPEN, press "Set open here".<br>2. Jog down to fully CLOSED, press "Set closed here".</div>
+    <div class="row"><button onclick="jog(-5000)">&uarr;&uarr;&uarr;</button><button onclick="jog(-1000)">&uarr;&uarr;</button><button onclick="jog(-100)">&uarr;</button></div>
+    <div class="row"><button onclick="jog(100)">&darr;</button><button onclick="jog(1000)">&darr;&darr;</button><button onclick="jog(5000)">&darr;&darr;&darr;</button></div>
+    <div class="row"><button onclick="stopShade()">Stop</button></div>
+    <div class="row"><button class="pri" onclick="cal('open')">Set open here</button><button class="pri" onclick="cal('closed')">Set closed here</button></div>
+    <div class="msg" id="calinfo"></div>
+  </div>
+  <div class="card">
+    <h2>Motor</h2>
+    <label>Speed (steps/sec)</label><input type="number" id="s_speed" min="200" max="20000">
+    <label>Acceleration (steps/sec&sup2;)</label><input type="number" id="s_accel" min="100" max="50000">
+    <label class="inl"><span class="sw"><input type="checkbox" id="s_invert"><i></i></span> Reverse motor direction</label>
+    <div class="msg">Changing direction restarts the controller.</div>
+  </div>
+  <div class="card">
+    <h2>Location &amp; time</h2>
+    <label>Timezone</label>
+    <select id="s_tz">
+      <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option>
+      <option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
+      <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option>
+      <option value="MST7">US Arizona (no DST)</option>
+      <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
+      <option value="AKST9AKDT,M3.2.0,M11.1.0">US Alaska</option>
+      <option value="HST10">Hawaii</option>
+      <option value="UTC0">UTC</option>
+    </select>
+    <label>Latitude (for sunrise/sunset)</label><input type="number" id="s_lat" step="0.0001">
+    <label>Longitude (negative = west)</label><input type="number" id="s_lon" step="0.0001">
+  </div>
+  <button class="pri" style="width:100%" onclick="saveSettings()">Save settings</button>
+  <div class="msg" id="setmsg"></div>
+  <div class="card" style="margin-top:16px">
+    <h2>WiFi</h2>
+    <div class="msg">Moving to a new network? This forgets the saved WiFi and reopens the "SmartShade-Setup" hotspot.</div>
+    <button class="danger" style="width:100%;margin-top:10px" onclick="resetWifi()">Reset WiFi</button>
+  </div>
+</section>
+
+</main>
+
+<dialog id="dlg">
+  <h2 id="dlgtitle">Schedule</h2>
+  <label>When</label>
+  <select id="e_type" onchange="typeChanged()">
+    <option value="0">At a set time</option>
+    <option value="1">At sunrise</option>
+    <option value="2">At sunset</option>
+  </select>
+  <div id="e_timewrap"><label>Time</label><input type="time" id="e_time" value="07:00"></div>
+  <div id="e_offwrap" style="display:none"><label>Offset in minutes (negative = before)</label><input type="number" id="e_off" value="0" min="-240" max="240"></div>
+  <label>Days</label>
+  <div class="chips" id="e_days"></div>
+  <label>Set shade to <b id="e_tlabel">100</b>% open</label>
+  <input type="range" id="e_target" min="0" max="100" value="100" oninput="$('#e_tlabel').textContent=this.value">
+  <div class="row" style="margin-top:18px">
+    <button id="e_del" class="danger" onclick="delSched()">Delete</button>
+    <button onclick="$('#dlg').close()">Cancel</button>
+    <button class="pri" onclick="okSched()">Save</button>
+  </div>
+</dialog>
+
+<nav>
+  <button class="on" data-t="control">Control</button>
+  <button data-t="sched">Schedules</button>
+  <button data-t="set">Settings</button>
+</nav>
+
+<script>
+const $=s=>document.querySelector(s);
+const DAYS=['S','M','T','W','T','F','S'], DAYN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+let st={}, scheds=[], editing=-1, editDays=127, dragging=false;
+
+async function api(p,m='GET',b){
+  const r=await fetch('/api/'+p,{method:m,headers:{'Content-Type':'application/json'},body:b!==undefined?JSON.stringify(b):undefined});
+  let j={}; try{j=await r.json()}catch(e){}
+  if(!r.ok) throw new Error(j.error||r.statusText);
+  return j;
+}
+function fmtMin(m){if(m==null||m<0)return '--';const h=Math.floor(m/60),mm=m%60;return ((h%12)||12)+':'+String(mm).padStart(2,'0')+(h<12?' AM':' PM')}
+function fmt12(h,m){return fmtMin(h*60+m)}
+
+// ---------- tabs
+document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('nav button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('section').forEach(s=>s.classList.toggle('on',s.id==='tab-'+b.dataset.t));
+  if(b.dataset.t==='sched')loadScheds();
+  if(b.dataset.t==='set')loadSettings();
+});
+
+// ---------- control
+async function poll(){
+  try{st=await api('state');render();$('#conn').className='dot ok'}
+  catch(e){$('#conn').className='dot';$('#clock').textContent='offline'}
+}
+function render(){
+  $('#calwarn').style.display=st.calibrated?'none':'block';
+  const p=dragging?+$('#slider').value:(st.moving?st.percent:st.percent);
+  $('#pct').textContent=p;
+  if(!dragging)$('#slider').value=st.moving?st.target:st.percent;
+  $('#fabric').style.height=(100-p)+'%';
+  $('#clock').textContent=(st.timeOk?st.time:'syncing clock...')+(st.moving?'  \u00b7  moving':'');
+  if(st.timeOk&&st.sunrise>=0){$('#suncard').style.display='block';$('#sunline').textContent='Sunrise '+fmtMin(st.sunrise)+'   \u00b7   Sunset '+fmtMin(st.sunset)}
+  else if(st.timeOk){$('#suncard').style.display='block';$('#sunline').textContent='Set your latitude/longitude in Settings to enable sunrise/sunset schedules.'}
+  $('#calinfo').textContent='Position '+st.pos+' of '+(st.calibrated?st.maxSteps:'?')+' steps';
+}
+async function move(p){try{await api('move?percent='+p,'POST');poll()}catch(e){alert(e.message)}}
+async function stopShade(){try{await api('stop','POST');poll()}catch(e){alert(e.message)}}
+const sl=$('#slider');
+sl.addEventListener('input',()=>{dragging=true;$('#pct').textContent=sl.value;$('#fabric').style.height=(100-sl.value)+'%'});
+sl.addEventListener('change',async()=>{await move(sl.value);dragging=false});
+
+// ---------- schedules
+async function loadScheds(){try{scheds=await api('schedules');renderScheds()}catch(e){$('#schedmsg').textContent=e.message}}
+function schedWhen(s){
+  if(s.type===0)return fmt12(s.hour,s.minute);
+  const n=s.type===1?'Sunrise':'Sunset';
+  return n+(s.offset?(s.offset>0?' +':' ')+s.offset+' min':'');
+}
+function daysText(d){
+  if(d===127)return 'Every day';
+  if(d===62)return 'Weekdays';
+  if(d===65)return 'Weekends';
+  if(d===0)return 'Never';
+  return DAYN.filter((_,i)=>d&(1<<i)).join(' ');
+}
+function renderScheds(){
+  const el=$('#schedlist');el.innerHTML='';
+  if(!scheds.length)el.innerHTML='<div class="card sub">No schedules yet.</div>';
+  scheds.forEach((s,i)=>{
+    const d=document.createElement('div');d.className='card sch';
+    d.innerHTML='<div class="t"><b>'+schedWhen(s)+'</b><div class="sub">'+daysText(s.days)+' &rarr; '+s.target+'% open</div></div>'+
+      '<button class="sm">Edit</button><label class="sw"><input type="checkbox" '+(s.enabled?'checked':'')+'><i></i></label>';
+    d.querySelector('button').onclick=()=>editSched(i);
+    d.querySelector('input').onchange=e=>{s.enabled=e.target.checked;saveScheds()};
+    el.appendChild(d);
+  });
+}
+async function saveScheds(){
+  try{await api('schedules','POST',scheds);$('#schedmsg').textContent='Saved';setTimeout(()=>$('#schedmsg').textContent='',1500)}
+  catch(e){$('#schedmsg').textContent='Error: '+e.message}
+  renderScheds();
+}
+function buildChips(){
+  const w=$('#e_days');w.innerHTML='';
+  DAYS.forEach((l,i)=>{
+    const c=document.createElement('div');c.className='chip'+(editDays&(1<<i)?' on':'');c.textContent=l;
+    c.onclick=()=>{editDays^=(1<<i);c.classList.toggle('on')};
+    w.appendChild(c);
+  });
+}
+function typeChanged(){
+  const t=+$('#e_type').value;
+  $('#e_timewrap').style.display=t===0?'block':'none';
+  $('#e_offwrap').style.display=t===0?'none':'block';
+}
+function editSched(i){
+  if(i<0&&scheds.length>=16){alert('Maximum of 16 schedules');return}
+  editing=i;
+  const s=i>=0?scheds[i]:{enabled:true,type:0,hour:7,minute:0,offset:0,days:127,target:100};
+  editDays=s.days;
+  $('#dlgtitle').textContent=i>=0?'Edit schedule':'New schedule';
+  $('#e_type').value=s.type;
+  $('#e_time').value=String(s.hour).padStart(2,'0')+':'+String(s.minute).padStart(2,'0');
+  $('#e_off').value=s.offset;
+  $('#e_target').value=s.target;$('#e_tlabel').textContent=s.target;
+  $('#e_del').style.display=i>=0?'block':'none';
+  buildChips();typeChanged();
+  $('#dlg').showModal();
+}
+function okSched(){
+  const [h,m]=$('#e_time').value.split(':').map(Number);
+  const s={enabled:editing>=0?scheds[editing].enabled:true,type:+$('#e_type').value,hour:h||0,minute:m||0,
+    offset:+$('#e_off').value||0,days:editDays,target:+$('#e_target').value};
+  if(editing>=0)scheds[editing]=s;else scheds.push(s);
+  $('#dlg').close();saveScheds();
+}
+function delSched(){
+  if(editing>=0)scheds.splice(editing,1);
+  $('#dlg').close();saveScheds();
+}
+
+// ---------- settings
+async function loadSettings(){
+  try{
+    const s=await api('settings');
+    $('#s_speed').value=s.speed;$('#s_accel').value=s.accel;$('#s_invert').checked=s.invert;
+    $('#s_lat').value=s.lat;$('#s_lon').value=s.lon;
+    const sel=$('#s_tz');
+    if(![...sel.options].some(o=>o.value===s.tz)){const o=new Option('Custom ('+s.tz+')',s.tz);sel.add(o)}
+    sel.value=s.tz;
+  }catch(e){$('#setmsg').textContent=e.message}
+}
+async function saveSettings(){
+  try{
+    const r=await api('settings','POST',{speed:+$('#s_speed').value,accel:+$('#s_accel').value,invert:$('#s_invert').checked,
+      lat:+$('#s_lat').value,lon:+$('#s_lon').value,tz:$('#s_tz').value});
+    $('#setmsg').textContent=r.restarting?'Saved. Restarting controller...':'Saved';
+  }catch(e){$('#setmsg').textContent='Error: '+e.message}
+}
+async function jog(n){try{await api('jog?steps='+n,'POST')}catch(e){alert(e.message)}}
+async function cal(w){
+  try{await api('cal/'+w,'POST');poll()}catch(e){alert(e.message)}
+}
+async function resetWifi(){
+  if(!confirm('Forget WiFi and reopen the setup hotspot?'))return;
+  try{await api('wifi/reset','POST')}catch(e){}
+  alert('Connect your phone to the "SmartShade-Setup" WiFi network to set up again.');
+}
+
+poll();setInterval(poll,1500);
+</script>
+</body>
+</html>
+)HTML";
