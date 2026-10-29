@@ -99,4 +99,8 @@ There is **no login** on the web app or API. Anyone on your WiFi network can con
 
 This is a first version. The sunrise/sunset math and the motor speed ramp were tested on a PC, but the full firmware has not been verified on real hardware yet, so expect to tune speed, acceleration and driver current on your own motor. Issues and pull requests are welcome.
 
+## License
+
+[MIT](LICENSE)
+
 Planned: a login for the API, outside-the-house access, HomeKit/Siri, a light sensor, and limit switches.
