@@ -50,7 +50,15 @@ The first build downloads the mDNS component automatically.
    (There is no automatic captive-portal popup, so type the address in the browser.)
 2. Open `http://shade.local` in Safari, then Share > Add to Home Screen.
 3. Settings > Calibration: jog to fully open, press *Set open here*, jog to fully closed, press *Set closed here*.
-4. Set your timezone (default US Eastern) and latitude/longitude for sunrise/sunset schedules, then add schedules.
+4. Timezone is automatic. Each time you open the app, the shade copies your phone's timezone, and it applies daylight saving changes by itself, so nothing needs updating twice a year. (Settings > "Set timezone automatically" can be turned off to pick a zone by hand.) Enter latitude/longitude for sunrise/sunset schedules, then add schedules.
+
+## Time, timezones and daylight saving
+
+- The clock syncs over the internet (NTP). The ESP32 holds a daylight-saving rule for your zone and switches by itself, so schedules and sunrise/sunset stay correct all year, even if your phone is off.
+- 100+ zones are built into the app (US, Canada, Europe, Asia, Australia, NZ and more). If your phone reports a zone that isn't in the list, the app says so and you pick one by hand.
+- Schedules in the hour that is skipped when clocks spring forward fire right after the jump instead of being lost. When clocks fall back, a schedule fires once, not twice.
+- Canada: British Columbia, Alberta, Manitoba and the Northwest Territories stop changing their clocks on 1 Nov 2026 (permanent daylight time), and are set up that way.
+- Zones are checked against the IANA database through the end of 2027. Governments change DST rules from time to time, so a future firmware update may occasionally be needed.
 
 ## Notes
 
