@@ -76,6 +76,7 @@ typedef struct {
 } sched_t;
 
 static config_t g_cfg;
+static uint8_t g_auto_tz = 1; /* follow the phone's timezone (DST rules come with it) */
 static sched_t g_sched[MAX_SCHED];
 static int32_t g_last_fired[MAX_SCHED];
 
@@ -109,6 +110,15 @@ static bool nvs_load_blob(const char *key, void *data, size_t len)
 }
 
 static void save_config(void) { nvs_save_blob("cfg", &g_cfg, sizeof g_cfg); }
+static void save_auto_tz(void)
+{
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
+    nvs_set_u8(h, "autotz", g_auto_tz);
+    nvs_commit(h);
+    nvs_close(h);
+}
+
 static void save_sched(void) { nvs_save_blob("sched", g_sched, sizeof g_sched); }
 
 static void save_position(void)
@@ -126,6 +136,11 @@ static void load_all(void)
     config_t tmp;
     if (nvs_load_blob("cfg", &tmp, sizeof tmp) && tmp.magic == CFG_MAGIC) g_cfg = tmp;
     nvs_load_blob("sched", g_sched, sizeof g_sched);
+    nvs_handle_t h;
+    if (nvs_open(NVS_NS, NVS_READONLY, &h) == ESP_OK) {
+        nvs_get_u8(h, "autotz", &g_auto_tz);
+        nvs_close(h);
+    }
     for (int i = 0; i < MAX_SCHED; i++) g_last_fired[i] = -1;
 }
 
@@ -174,12 +189,24 @@ static void apply_timezone(void)
 
 static void check_schedules(void)
 {
+    static int32_t last_day = -1;
+    static int last_min = -1;
+
     if (!time_valid() || g_cfg.max_steps <= 0) return;
     time_t now = time(NULL);
     struct tm lt;
     localtime_r(&now, &lt);
     int min_now = lt.tm_hour * 60 + lt.tm_min;
-    int32_t key = (lt.tm_year * 366 + lt.tm_yday) * 1440 + min_now;
+    int32_t day = lt.tm_year * 366 + lt.tm_yday;
+
+    /* Look at every minute since the last check, not just this one. When clocks spring
+     * forward (02:00 -> 03:00) a 02:30 schedule is inside the skipped hour and would
+     * otherwise never fire; it now fires right at 03:00. When clocks fall back, the
+     * repeated hour is ignored because min_now goes backwards. */
+    int from = min_now;
+    if (day == last_day && last_min >= 0 && min_now - last_min > 1 && min_now - last_min <= 120) from = last_min + 1;
+    last_day = day;
+    last_min = min_now;
 
     for (int i = 0; i < MAX_SCHED; i++) {
         sched_t *s = &g_sched[i];
@@ -196,7 +223,8 @@ static void check_schedules(void)
         }
         if (trig < 0 || trig >= 1440) continue;
 
-        if (trig == min_now && g_last_fired[i] != key) {
+        int32_t key = day * 1440 + trig;
+        if (trig >= from && trig <= min_now && g_last_fired[i] != key) {
             g_last_fired[i] = key;
             ESP_LOGI(TAG, "schedule %d fired -> %d%%", i, s->target);
             move_to_percent(s->target);
@@ -445,6 +473,7 @@ static esp_err_t h_settings_get(httpd_req_t *r)
     cJSON_AddNumberToObject(j, "speed", g_cfg.speed);
     cJSON_AddNumberToObject(j, "accel", g_cfg.accel);
     cJSON_AddStringToObject(j, "tz", g_cfg.tz);
+    cJSON_AddBoolToObject(j, "autoTz", g_auto_tz);
     return send_json(r, 200, j);
 }
 
@@ -463,6 +492,11 @@ static esp_err_t h_settings_post(httpd_req_t *r)
     if (cJSON_IsBool(inv)) g_cfg.invert = cJSON_IsTrue(inv);
     g_cfg.speed = clampi(num_or(j, "speed", g_cfg.speed), 200, 20000);
     g_cfg.accel = clampi(num_or(j, "accel", g_cfg.accel), 100, 50000);
+    cJSON *at = cJSON_GetObjectItem(j, "autoTz");
+    if (cJSON_IsBool(at) && g_auto_tz != cJSON_IsTrue(at)) {
+        g_auto_tz = cJSON_IsTrue(at);
+        save_auto_tz();
+    }
     cJSON *tz = cJSON_GetObjectItem(j, "tz");
     if (cJSON_IsString(tz) && strlen(tz->valuestring) < sizeof g_cfg.tz) {
         strcpy(g_cfg.tz, tz->valuestring);
