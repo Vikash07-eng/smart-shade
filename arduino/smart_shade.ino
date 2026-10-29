@@ -63,6 +63,7 @@ struct Sched {
   uint8_t days = 0x7F;   // bit0 = Sunday ... bit6 = Saturday
   uint8_t target = 100;  // percent open
 };
+bool autoTz = true;                  // follow the phone's timezone (DST rules come with it)
 Sched sched[MAX_SCHED];
 int32_t lastFired[MAX_SCHED];
 
@@ -79,6 +80,7 @@ void loadConfig() {
   cfg.speed = prefs.getUInt("spd", 3000);
   cfg.accel = prefs.getUInt("acc", 2000);
   cfg.maxSteps = prefs.getInt("max", 0);
+  autoTz = prefs.getBool("atz", true);
   String tz = prefs.getString("tz", cfg.tz);
   tz.toCharArray(cfg.tz, sizeof(cfg.tz));
   size_t n = prefs.getBytesLength("sched");
@@ -94,6 +96,7 @@ void saveConfig() {
   prefs.putUInt("spd", cfg.speed);
   prefs.putUInt("acc", cfg.accel);
   prefs.putInt("max", cfg.maxSteps);
+  prefs.putBool("atz", autoTz);
   prefs.putString("tz", cfg.tz);
   prefs.end();
 }
@@ -168,12 +171,24 @@ int sunEvent(bool rise, const struct tm &lt, time_t now) {
 }
 
 void checkSchedules() {
+  static int32_t lastDay = -1;
+  static int lastMin = -1;
+
   if (!timeValid() || cfg.maxSteps <= 0) return;
   time_t now = time(nullptr);
   struct tm lt;
   localtime_r(&now, &lt);
   int minNow = lt.tm_hour * 60 + lt.tm_min;
-  int32_t key = (lt.tm_year * 366 + lt.tm_yday) * 1440 + minNow;
+  int32_t day = lt.tm_year * 366 + lt.tm_yday;
+
+  // Look at every minute since the last check, not just this one. When clocks spring forward
+  // (02:00 -> 03:00) a 02:30 schedule sits in the skipped hour and would never fire; now it
+  // fires right at 03:00. When clocks fall back, minNow goes backwards and the repeated hour
+  // is ignored, so nothing fires twice.
+  int from = minNow;
+  if (day == lastDay && lastMin >= 0 && minNow - lastMin > 1 && minNow - lastMin <= 120) from = lastMin + 1;
+  lastDay = day;
+  lastMin = minNow;
 
   for (int i = 0; i < MAX_SCHED; i++) {
     Sched &s = sched[i];
@@ -190,7 +205,8 @@ void checkSchedules() {
     }
     if (trig < 0 || trig >= 1440) continue;
 
-    if (trig == minNow && lastFired[i] != key) {
+    int32_t key = day * 1440 + trig;
+    if (trig >= from && trig <= minNow && lastFired[i] != key) {
       lastFired[i] = key;
       Serial.printf("Schedule %d fired -> %d%%\n", i, s.target);
       moveToPercent(s.target);
@@ -345,6 +361,7 @@ void handleSettingsGet() {
   d["speed"] = cfg.speed;
   d["accel"] = cfg.accel;
   d["tz"] = cfg.tz;
+  d["autoTz"] = autoTz;
   sendJson(200, d);
 }
 
@@ -356,6 +373,7 @@ void handleSettingsPost() {
   cfg.lat = d["lat"] | cfg.lat;
   cfg.lon = d["lon"] | cfg.lon;
   cfg.invert = d["invert"] | cfg.invert;
+  autoTz = d["autoTz"] | autoTz;
   cfg.speed = constrain((int)(d["speed"] | (int)cfg.speed), 200, 20000);
   cfg.accel = constrain((int)(d["accel"] | (int)cfg.accel), 100, 50000);
   if (d["tz"].is<const char *>()) strlcpy(cfg.tz, d["tz"], sizeof(cfg.tz));

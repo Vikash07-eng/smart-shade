@@ -116,15 +116,26 @@ dialog::backdrop{background:rgba(0,0,0,.6)}
   </div>
   <div class="card">
     <h2>Location &amp; time</h2>
+    <label class="inl"><span class="sw"><input type="checkbox" id="s_autotz" onchange="autoTzChanged()"><i></i></span> Set timezone automatically</label>
+    <div class="msg" id="tzinfo">Follows this phone, including daylight saving changes.</div>
     <label>Timezone</label>
     <select id="s_tz">
-      <option value="EST5EDT,M3.2.0,M11.1.0">US Eastern</option>
-      <option value="CST6CDT,M3.2.0,M11.1.0">US Central</option>
-      <option value="MST7MDT,M3.2.0,M11.1.0">US Mountain</option>
+      <option value="EST5EDT,M3.2.0,M11.1.0">US/Canada Eastern</option>
+      <option value="CST6CDT,M3.2.0,M11.1.0">US/Canada Central</option>
+      <option value="MST7MDT,M3.2.0,M11.1.0">US/Canada Mountain</option>
       <option value="MST7">US Arizona (no DST)</option>
-      <option value="PST8PDT,M3.2.0,M11.1.0">US Pacific</option>
+      <option value="PST8PDT,M3.2.0,M11.1.0">US/Canada Pacific</option>
       <option value="AKST9AKDT,M3.2.0,M11.1.0">US Alaska</option>
       <option value="HST10">Hawaii</option>
+      <option value="AST4ADT,M3.2.0,M11.1.0">Atlantic Canada</option>
+      <option value="GMT0BST,M3.5.0/1,M10.5.0">UK</option>
+      <option value="CET-1CEST,M3.5.0,M10.5.0/3">Central Europe</option>
+      <option value="EET-2EEST,M3.5.0/3,M10.5.0/4">Eastern Europe</option>
+      <option value="IST-5:30">India</option>
+      <option value="CST-8">China / Taiwan</option>
+      <option value="JST-9">Japan</option>
+      <option value="AEST-10AEDT,M10.1.0,M4.1.0/3">Sydney / Melbourne</option>
+      <option value="NZST-12NZDT,M9.5.0,M4.1.0/3">New Zealand</option>
       <option value="UTC0">UTC</option>
     </select>
     <label>Latitude (for sunrise/sunset)</label><input type="number" id="s_lat" step="0.0001">
@@ -282,6 +293,81 @@ function delSched(){
   $('#dlg').close();saveScheds();
 }
 
+// ---------- timezone (phone name -> POSIX rule with daylight saving, which the shade runs by itself)
+const US_E='EST5EDT,M3.2.0,M11.1.0',US_C='CST6CDT,M3.2.0,M11.1.0',US_M='MST7MDT,M3.2.0,M11.1.0',US_P='PST8PDT,M3.2.0,M11.1.0',
+  EU_C='CET-1CEST,M3.5.0,M10.5.0/3',EU_E='EET-2EEST,M3.5.0/3,M10.5.0/4',EU_W='WET0WEST,M3.5.0/1,M10.5.0',AU_E='AEST-10AEDT,M10.1.0,M4.1.0/3';
+const TZMAP={};
+function tzSet(rule,names){names.split(',').forEach(n=>TZMAP[n.trim()]=rule)}
+tzSet(US_E,'America/New_York,America/Detroit,America/Toronto,America/Montreal,America/Indiana/Indianapolis,America/Indianapolis,America/Kentucky/Louisville,America/Nassau,US/Eastern');
+tzSet(US_C,'America/Chicago,America/Indiana/Knox,America/Menominee,US/Central');
+tzSet(US_M,'America/Denver,America/Boise,US/Mountain');
+tzSet('MST7','America/Phoenix,US/Arizona,America/Hermosillo');
+tzSet(US_P,'America/Los_Angeles,America/Tijuana,US/Pacific');
+tzSet('AKST9AKDT,M3.2.0,M11.1.0','America/Anchorage,America/Juneau,US/Alaska');
+tzSet('HST10','Pacific/Honolulu,US/Hawaii');
+// Canada: BC, Alberta, Manitoba and the NWT stopped changing clocks on 1 Nov 2026 (permanent daylight time).
+// Fixed offsets equal what those zones show today, so they are right both before and after that date.
+tzSet('MST7','America/Vancouver');
+tzSet('CST6','America/Edmonton,America/Yellowknife');
+tzSet('EST5','America/Winnipeg');
+tzSet('AST4ADT,M3.2.0,M11.1.0','America/Halifax,Atlantic/Bermuda');
+tzSet('NST3:30NDT,M3.2.0,M11.1.0','America/St_Johns');
+tzSet('AST4','America/Puerto_Rico,America/Santo_Domingo');
+tzSet('CST6','America/Mexico_City,America/Guatemala,America/Costa_Rica,America/El_Salvador,America/Regina');
+tzSet('EST5','America/Panama,America/Jamaica,America/Cancun');
+tzSet('<-05>5','America/Bogota,America/Lima');
+tzSet('<-03>3','America/Sao_Paulo,America/Argentina/Buenos_Aires,America/Buenos_Aires,America/Montevideo');
+tzSet('GMT0BST,M3.5.0/1,M10.5.0','Europe/London,Europe/Belfast,Europe/Jersey');
+tzSet('IST-1GMT0,M10.5.0,M3.5.0/1','Europe/Dublin');
+tzSet(EU_W,'Europe/Lisbon,Atlantic/Canary,Atlantic/Madeira');
+tzSet(EU_C,'Europe/Paris,Europe/Berlin,Europe/Madrid,Europe/Rome,Europe/Amsterdam,Europe/Brussels,Europe/Vienna,Europe/Zurich,Europe/Stockholm,Europe/Oslo,Europe/Copenhagen,Europe/Prague,Europe/Warsaw,Europe/Budapest,Europe/Belgrade,Europe/Zagreb,Europe/Luxembourg,Europe/Malta');
+tzSet(EU_E,'Europe/Athens,Europe/Helsinki,Europe/Kyiv,Europe/Kiev,Europe/Bucharest,Europe/Sofia,Europe/Riga,Europe/Tallinn,Europe/Vilnius');
+tzSet('<+03>-3','Europe/Istanbul,Asia/Riyadh,Asia/Baghdad,Asia/Kuwait,Asia/Qatar,Europe/Minsk,Africa/Nairobi');
+tzSet('MSK-3','Europe/Moscow');
+tzSet('IST-2IDT,M3.4.5/2,M10.5.0','Asia/Jerusalem,Asia/Tel_Aviv');
+tzSet('EET-2EEST,M4.5.5/0,M10.5.4/24','Africa/Cairo');
+tzSet('SAST-2','Africa/Johannesburg');
+tzSet('WAT-1','Africa/Lagos');
+tzSet('<+04>-4','Asia/Dubai,Asia/Muscat');
+tzSet('<+0330>-3:30','Asia/Tehran');
+tzSet('PKT-5','Asia/Karachi');
+tzSet('IST-5:30','Asia/Kolkata,Asia/Calcutta');
+tzSet('<+0545>-5:45','Asia/Kathmandu');
+tzSet('<+06>-6','Asia/Dhaka');
+tzSet('<+07>-7','Asia/Bangkok,Asia/Ho_Chi_Minh,Asia/Saigon');
+tzSet('WIB-7','Asia/Jakarta');
+tzSet('<+08>-8','Asia/Singapore,Asia/Kuala_Lumpur');
+tzSet('HKT-8','Asia/Hong_Kong');
+tzSet('CST-8','Asia/Shanghai,Asia/Taipei,Asia/Macau');
+tzSet('PST-8','Asia/Manila');
+tzSet('AWST-8','Australia/Perth');
+tzSet('KST-9','Asia/Seoul');
+tzSet('JST-9','Asia/Tokyo');
+tzSet(AU_E,'Australia/Sydney,Australia/Melbourne,Australia/Canberra,Australia/Hobart');
+tzSet('AEST-10','Australia/Brisbane');
+tzSet('ACST-9:30ACDT,M10.1.0,M4.1.0/3','Australia/Adelaide');
+tzSet('ACST-9:30','Australia/Darwin');
+tzSet('NZST-12NZDT,M9.5.0,M4.1.0/3','Pacific/Auckland');
+tzSet('UTC0','UTC,Etc/UTC,GMT');
+function phoneZone(){try{return Intl.DateTimeFormat().resolvedOptions().timeZone||''}catch(e){return ''}}
+function phoneTz(){return TZMAP[phoneZone()]||null}
+function autoTzChanged(){
+  const on=$('#s_autotz').checked,p=phoneTz();
+  $('#s_tz').disabled=on;
+  if(on&&p)$('#s_tz').value=p;
+  $('#tzinfo').textContent=on?(p?'Following this phone ('+phoneZone()+'), including daylight saving changes.':'This phone\'s timezone ('+phoneZone()+') is not in the built-in list. Turn this off and pick one.'):'Pick your timezone below. Daylight saving changes are applied for you.';
+}
+let tzSynced=0;
+async function tzSync(){
+  if(Date.now()-tzSynced<60000)return;
+  tzSynced=Date.now();
+  try{
+    const s=await api('settings'),p=phoneTz();
+    if(s.autoTz&&p&&p!==s.tz)await api('settings','POST',{tz:p});
+  }catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)tzSync()});
+
 // ---------- settings
 async function loadSettings(){
   try{
@@ -291,12 +377,13 @@ async function loadSettings(){
     const sel=$('#s_tz');
     if(![...sel.options].some(o=>o.value===s.tz)){const o=new Option('Custom ('+s.tz+')',s.tz);sel.add(o)}
     sel.value=s.tz;
+    $('#s_autotz').checked=!!s.autoTz;autoTzChanged();
   }catch(e){$('#setmsg').textContent=e.message}
 }
 async function saveSettings(){
   try{
     const r=await api('settings','POST',{speed:+$('#s_speed').value,accel:+$('#s_accel').value,invert:$('#s_invert').checked,
-      lat:+$('#s_lat').value,lon:+$('#s_lon').value,tz:$('#s_tz').value});
+      lat:+$('#s_lat').value,lon:+$('#s_lon').value,tz:$('#s_tz').value,autoTz:$('#s_autotz').checked});
     $('#setmsg').textContent=r.restarting?'Saved. Restarting controller...':'Saved';
   }catch(e){$('#setmsg').textContent='Error: '+e.message}
 }
@@ -310,7 +397,7 @@ async function resetWifi(){
   alert('Connect your phone to the "SmartShade-Setup" WiFi network to set up again.');
 }
 
-poll();setInterval(poll,1500);
+poll();setInterval(poll,1500);tzSync();
 </script>
 </body>
 </html>

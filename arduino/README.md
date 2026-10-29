@@ -83,3 +83,7 @@ Note: there is no login yet. That's fine on a home network, but we should add au
 - Remote access from outside the house (Tailscale on your iPhone is the easiest and safest option, or MQTT/Home Assistant).
 - HomeKit/Siri via Matter or a Home Assistant bridge.
 - Light sensor automation, limit switches for self-homing.
+
+## Time, timezones and daylight saving
+
+The timezone is automatic: each time you open the app it copies your phone's timezone to the shade, and the shade applies daylight saving changes by itself. Settings > "Set timezone automatically" can be switched off to pick a zone by hand. 100+ zones are built in. Schedules in the hour skipped when clocks spring forward fire right after the jump, and fall-back never fires a schedule twice. British Columbia, Alberta, Manitoba and the NWT stop changing their clocks on 1 Nov 2026 and are set up that way. See the main README for details.
